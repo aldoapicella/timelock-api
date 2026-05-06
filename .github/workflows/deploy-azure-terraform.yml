@@ -121,6 +121,21 @@ jobs:
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v3
 
+      - name: Register required Azure providers
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for namespace in \
+            Microsoft.Authorization \
+            Microsoft.ContainerRegistry \
+            Microsoft.DBforPostgreSQL \
+            Microsoft.ManagedIdentity \
+            Microsoft.Storage \
+            Microsoft.Web; do
+            az provider register --namespace "$namespace" --wait
+          done
+
       - name: Generate Terraform backend
         working-directory: ${{ env.AZURE_TERRAFORM_DIR }}
         shell: bash
