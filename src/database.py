@@ -13,26 +13,22 @@ def _database_url() -> str:
     if explicit_url:
         return explicit_url
 
-    server = os.getenv("DB_SERVER")
-    database = os.getenv("DB_NAME")
-    user = os.getenv("DB_USER")
-    password = os.getenv("DB_PASSWORD")
+    host = os.getenv("POSTGRES_HOST")
+    database = os.getenv("POSTGRES_DB")
+    user = os.getenv("POSTGRES_USER")
+    password = os.getenv("POSTGRES_PASSWORD")
 
-    if not all([server, database, user, password]):
+    if not all([host, database, user, password]):
         return "sqlite:///./timelock.db"
 
-    driver = os.getenv("DB_DRIVER", "ODBC Driver 18 for SQL Server")
-    odbc_connection = (
-        f"DRIVER={{{driver}}};"
-        f"SERVER=tcp:{server},1433;"
-        f"DATABASE={database};"
-        f"UID={user};"
-        f"PWD={password};"
-        "Encrypt=yes;"
-        "TrustServerCertificate=no;"
-        "Connection Timeout=30;"
+    port = os.getenv("POSTGRES_PORT", "5432")
+    sslmode = os.getenv("POSTGRES_SSLMODE", "require")
+
+    return (
+        "postgresql+psycopg://"
+        f"{quote_plus(user)}:{quote_plus(password)}@{host}:{port}/{database}"
+        f"?sslmode={quote_plus(sslmode)}"
     )
-    return f"mssql+pyodbc:///?odbc_connect={quote_plus(odbc_connection)}"
 
 
 DATABASE_URL = _database_url()

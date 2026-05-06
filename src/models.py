@@ -11,12 +11,12 @@ def utc_now_naive() -> datetime:
 
 
 class Capsule(Base):
-    __tablename__ = "Capsules"
+    __tablename__ = "capsules"
 
-    id = Column("Id", Integer, primary_key=True, index=True, autoincrement=True)
-    title = Column("Title", Unicode(120), nullable=False)
-    content = Column("Content", UnicodeText, nullable=False)
-    unlock_at = Column("UnlockAt", DateTime, nullable=False, index=True)
-    public_code = Column("PublicCode", Unicode(32), nullable=False, unique=True, index=True)
-    is_deleted = Column("IsDeleted", Boolean, nullable=False, default=False, server_default=text("0"))
-    created_at = Column("CreatedAt", DateTime, nullable=False, default=utc_now_naive)
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    title = Column(Unicode(120), nullable=False)
+    content = Column(UnicodeText, nullable=False)
+    unlock_at = Column(DateTime, nullable=False, index=True)
+    public_code = Column(Unicode(32), nullable=False, unique=True, index=True)
+    is_deleted = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    created_at = Column(DateTime, nullable=False, default=utc_now_naive)

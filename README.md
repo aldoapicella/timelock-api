@@ -1,49 +1,66 @@
 # TimeLock API
 
-TimeLock API is a containerized FastAPI project for digital time capsules. A user creates a capsule with a title, content, and UTC unlock date. The API returns a public open link and a QR endpoint. Before the unlock date, the public link says the capsule is locked. After the unlock date, it reveals the message.
+TimeLock API is a containerized FastAPI service for digital time capsules. A user creates a capsule with a title, content, and UTC unlock date. The API returns a public open link and a QR endpoint. Before the unlock date, the public link says the capsule is locked. After the unlock date, it reveals the message.
 
-The repository includes Azure infrastructure as code with Bicep, a Dockerized API, GitHub Actions deployment, and an OpenAPI specification that can be imported into Swagger tools.
+The repository is standardized on Terraform and PostgreSQL. It includes AWS and Azure infrastructure stacks, GitHub Actions deployment workflows, Docker packaging, and an OpenAPI specification that can be imported into Swagger tools.
 
 ## Architecture
 
-| Layer | Azure service |
-| --- | --- |
-| Database | Azure SQL Database |
-| Container image | Azure Container Registry |
-| Backend hosting | App Service for Containers |
-| Infrastructure as Code | Bicep |
-| API documentation | Swagger/OpenAPI |
+| Layer | AWS | Azure |
+| --- | --- | --- |
+| Container registry | Amazon ECR | Azure Container Registry |
+| Container runtime | AWS App Runner | Azure App Service for Containers |
+| Database | Amazon RDS for PostgreSQL | Azure Database for PostgreSQL Flexible Server |
+| Secret storage | AWS Secrets Manager | App Service app settings |
+| Infrastructure as Code | Terraform AWS provider | Terraform AzureRM provider |
+| API documentation | Swagger/OpenAPI | Swagger/OpenAPI |
 
-### Azure resource topology
+### Multi-cloud topology
 
 ```mermaid
 flowchart TB
-    user["User or QR scanner"] --> app["Azure App Service for Containers<br/>TimeLock API"]
-    app --> sql["Azure SQL Database<br/>timelockdb"]
-    app -. "AcrPull via managed identity" .-> acr["Azure Container Registry<br/>timelock-api image"]
-    bicep["Bicep template<br/>infra/main.bicep"] --> acr
-    bicep --> sqlServer["Azure SQL Server"]
-    sqlServer --> sql
-    bicep --> plan["Linux App Service Plan<br/>Basic B1"]
-    plan --> app
-    bicep --> identity["System-assigned managed identity"]
-    identity --> app
+    repo["GitHub repository"] --> actions["GitHub Actions"]
+    actions --> terraform["Terraform"]
+    actions --> image["Docker image build"]
+
+    terraform --> aws["AWS stack"]
+    terraform --> azure["Azure stack"]
+
+    subgraph aws["AWS"]
+        ecr["Amazon ECR"]
+        apprunner["AWS App Runner"]
+        rds["RDS PostgreSQL"]
+        secrets["Secrets Manager"]
+        vpc["Private VPC networking"]
+        ecr --> apprunner
+        secrets --> apprunner
+        apprunner --> vpc
+        vpc --> rds
+    end
+
+    subgraph azure["Azure"]
+        acr["Azure Container Registry"]
+        appservice["App Service for Containers"]
+        pgflex["PostgreSQL Flexible Server"]
+        acr --> appservice
+        appservice --> pgflex
+    end
+
+    image --> ecr
+    image --> acr
 ```
 
-### GitHub deployment flow
+### Deployment flow
 
 ```mermaid
 flowchart LR
-    dev["Push to main<br/>or manual workflow run"] --> actions["GitHub Actions<br/>deploy.yml"]
-    actions --> oidc["Azure OIDC login<br/>no stored Azure password"]
-    oidc --> deploy["Bicep deployment<br/>resource group scope"]
-    deploy --> acr["Azure Container Registry"]
-    deploy --> webapp["App Service"]
-    deploy --> db["Azure SQL Database"]
-    actions --> image["Docker build"]
-    image --> acr
-    actions --> restart["Restart App Service"]
-    restart --> swagger["Swagger UI<br/>/docs"]
+    dispatch["Manual workflow dispatch"] --> oidc["Cloud OIDC login"]
+    oidc --> state["Terraform remote state"]
+    state --> registry["Create container registry first"]
+    registry --> build["Build and push Docker image"]
+    build --> apply["Terraform apply full stack"]
+    apply --> verify["Verify /health"]
+    verify --> docs["Open /docs"]
 ```
 
 ## API endpoints
@@ -63,17 +80,17 @@ The repository includes [openapi.yaml](./openapi.yaml), so you can paste the ful
 
 ## Data model
 
-The app creates this table automatically on startup:
+The app creates this PostgreSQL-compatible table automatically on startup through SQLAlchemy:
 
 ```sql
-CREATE TABLE Capsules (
-    Id INT IDENTITY PRIMARY KEY,
-    Title NVARCHAR(120) NOT NULL,
-    Content NVARCHAR(MAX) NOT NULL,
-    UnlockAt DATETIME2 NOT NULL,
-    PublicCode NVARCHAR(32) NOT NULL UNIQUE,
-    IsDeleted BIT NOT NULL DEFAULT 0,
-    CreatedAt DATETIME2 NOT NULL
+CREATE TABLE capsules (
+    id SERIAL PRIMARY KEY,
+    title VARCHAR(120) NOT NULL,
+    content TEXT NOT NULL,
+    unlock_at TIMESTAMP NOT NULL,
+    public_code VARCHAR(32) NOT NULL UNIQUE,
+    is_deleted BOOLEAN NOT NULL DEFAULT false,
+    created_at TIMESTAMP NOT NULL
 );
 ```
 
@@ -121,9 +138,51 @@ docker build -t timelock-api:latest .
 docker run --rm -p 8000:8000 timelock-api:latest
 ```
 
-## Deploy to Azure with Bicep
+## Terraform
 
-The repository includes a GitHub Actions workflow at [.github/workflows/deploy.yml](./.github/workflows/deploy.yml). It deploys the Bicep template, builds the Docker image, pushes it to Azure Container Registry, restarts App Service, and verifies `/health`.
+Terraform stacks live under:
+
+```txt
+infra/terraform/aws
+infra/terraform/azure
+```
+
+Validate locally:
+
+```bash
+terraform -chdir=infra/terraform/aws init -backend=false
+terraform -chdir=infra/terraform/aws validate
+
+terraform -chdir=infra/terraform/azure init -backend=false
+terraform -chdir=infra/terraform/azure validate
+```
+
+## Deploy AWS with GitHub Actions
+
+Workflow: [.github/workflows/deploy-aws-terraform.yml](./.github/workflows/deploy-aws-terraform.yml)
+
+The AWS workflow creates or reuses an S3 backend bucket and DynamoDB lock table, creates the ECR repository first, builds and pushes the image, applies the full Terraform stack, and verifies `/health`.
+
+Required GitHub repository variables:
+
+| Variable | Purpose |
+| --- | --- |
+| `AWS_ROLE_ARN` | IAM role assumed by GitHub Actions through OIDC |
+| `AWS_REGION` | AWS region, for example `us-east-1` |
+| `TF_STATE_BUCKET` | S3 bucket for Terraform remote state |
+| `TF_LOCK_TABLE` | DynamoDB table for Terraform state locking |
+
+Required GitHub repository secret:
+
+| Secret | Purpose |
+| --- | --- |
+| `TF_VAR_DB_PASSWORD` | RDS PostgreSQL administrator password |
+
+Run it from the GitHub Actions tab with **Deploy AWS with Terraform**.
+
+## Deploy Azure with GitHub Actions
+
+Workflow: [.github/workflows/deploy-azure-terraform.yml](./.github/workflows/deploy-azure-terraform.yml)
 
 Required GitHub repository variables:
 
@@ -134,113 +193,38 @@ Required GitHub repository variables:
 | `AZURE_SUBSCRIPTION_ID` | Azure subscription ID |
 | `AZURE_RESOURCE_GROUP` | Target resource group |
 | `AZURE_LOCATION` | Azure region, for example `eastus` |
-| `SQL_ADMIN_USER` | Azure SQL administrator username |
+| `AZURE_TF_STATE_RESOURCE_GROUP` | Resource group for Terraform state storage |
+| `AZURE_TF_STATE_STORAGE_ACCOUNT` | Storage account for Terraform state |
+| `AZURE_TF_STATE_CONTAINER` | Blob container for Terraform state |
 
 Required GitHub repository secret:
 
 | Secret | Purpose |
 | --- | --- |
-| `SQL_ADMIN_PASSWORD` | Azure SQL administrator password |
+| `TF_VAR_POSTGRES_ADMIN_PASSWORD` | Azure PostgreSQL administrator password |
 
-The workflow runs automatically on pushes to `main` that change the API, Dockerfile, infrastructure, or workflow. It can also be started manually from the GitHub Actions tab.
-
-## Manual Azure deployment
-
-Create a resource group:
-
-```bash
-az group create \
-  --name rg-timelock-api \
-  --location eastus
-```
-
-Deploy the infrastructure:
-
-```bash
-DEPLOYMENT_NAME=timelock-infra
-
-az deployment group create \
-  --name "$DEPLOYMENT_NAME" \
-  --resource-group rg-timelock-api \
-  --template-file infra/main.bicep \
-  --parameters sqlAdminPassword='Use-A-Strong-Password-123!'
-```
-
-Capture the deployment outputs:
-
-```bash
-ACR_NAME=$(az deployment group show \
-  --resource-group rg-timelock-api \
-  --name "$DEPLOYMENT_NAME" \
-  --query properties.outputs.acrName.value \
-  -o tsv)
-
-ACR_LOGIN_SERVER=$(az deployment group show \
-  --resource-group rg-timelock-api \
-  --name "$DEPLOYMENT_NAME" \
-  --query properties.outputs.acrLoginServer.value \
-  -o tsv)
-
-APP_NAME=$(az deployment group show \
-  --resource-group rg-timelock-api \
-  --name "$DEPLOYMENT_NAME" \
-  --query properties.outputs.appName.value \
-  -o tsv)
-```
-
-Build and push the image:
-
-```bash
-az acr login --name "$ACR_NAME"
-docker build -t timelock-api:latest .
-docker tag timelock-api:latest "$ACR_LOGIN_SERVER/timelock-api:latest"
-docker push "$ACR_LOGIN_SERVER/timelock-api:latest"
-```
-
-Restart App Service after the first image push:
-
-```bash
-az webapp restart \
-  --name "$APP_NAME" \
-  --resource-group rg-timelock-api
-```
-
-Open Swagger:
-
-```bash
-APP_URL=$(az deployment group show \
-  --resource-group rg-timelock-api \
-  --name "$DEPLOYMENT_NAME" \
-  --query properties.outputs.appUrl.value \
-  -o tsv)
-
-echo "$APP_URL/docs"
-```
-
-## Quick verification flow
-
-1. Review `infra/main.bicep`.
-2. Deploy the resource group infrastructure.
-3. Build and push the Docker image to ACR.
-4. Open Swagger at `/docs`.
-5. Create a capsule with a future unlock date.
-6. Copy the `openUrl` and show that it is locked.
-7. Create another capsule with a past unlock date.
-8. Open that capsule and show that it is unlocked.
-9. Open `/capsules/{id}/qr` and scan the QR code.
+Run it from the GitHub Actions tab with **Deploy Azure with Terraform**.
 
 ## Environment variables
 
 | Variable | Purpose |
 | --- | --- |
-| `DB_SERVER` | Azure SQL server host |
-| `DB_NAME` | Azure SQL database name |
-| `DB_USER` | Azure SQL username |
-| `DB_PASSWORD` | Azure SQL password |
-| `DB_DRIVER` | Optional ODBC driver name, defaults to `ODBC Driver 18 for SQL Server` |
-| `DATABASE_URL` | Optional full SQLAlchemy URL. If set, it overrides the individual database variables |
+| `DATABASE_URL` | Full SQLAlchemy database URL. This is the preferred production setting |
+| `POSTGRES_HOST` | PostgreSQL host, used only when `DATABASE_URL` is not set |
+| `POSTGRES_PORT` | PostgreSQL port, defaults to `5432` |
+| `POSTGRES_DB` | PostgreSQL database name |
+| `POSTGRES_USER` | PostgreSQL username |
+| `POSTGRES_PASSWORD` | PostgreSQL password |
+| `POSTGRES_SSLMODE` | PostgreSQL SSL mode, defaults to `require` |
 | `PUBLIC_BASE_URL` | Optional public URL used to generate open links and QR links |
 
-## Notes
+## Quick verification flow
 
-The Bicep template disables ACR admin credentials and gives the App Service system-assigned managed identity the `AcrPull` role. This keeps container pull access inside Azure without storing registry passwords in application settings.
+1. Deploy either the AWS or Azure Terraform workflow.
+2. Open the workflow summary and copy the app URL.
+3. Open Swagger at `/docs`.
+4. Create a capsule with a future unlock date.
+5. Copy the `openUrl` and verify that it is locked.
+6. Create another capsule with a past unlock date.
+7. Open that capsule and verify that it is unlocked.
+8. Open `/capsules/{id}/qr` and scan the QR code.
