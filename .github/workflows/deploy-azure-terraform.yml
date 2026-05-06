@@ -198,7 +198,7 @@ jobs:
           docker push "$acr_login_server/timelock-api:${{ env.DOCKER_IMAGE_TAG }}"
           docker push "$acr_login_server/timelock-api:latest"
 
-      - name: Import existing Container App if needed
+      - name: Remove unmanaged partial Container Apps
         working-directory: ${{ env.AZURE_TERRAFORM_DIR }}
         env:
           TF_VAR_location: ${{ vars.AZURE_LOCATION }}
@@ -214,17 +214,25 @@ jobs:
             exit 0
           fi
 
-          app_name=$(terraform console <<< 'local.app_name' | tail -n 1 | tr -d '"')
+          existing_apps=$(az containerapp list \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --query "[].name" \
+            -o tsv)
 
-          if az containerapp show \
-            --name "$app_name" \
-            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" >/dev/null 2>&1; then
-            terraform import \
-              azurerm_container_app.api \
-              "/subscriptions/${{ vars.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ vars.AZURE_RESOURCE_GROUP }}/providers/Microsoft.App/containerApps/$app_name"
-          else
-            echo "No existing Container App to import."
+          if [ -z "$existing_apps" ]; then
+            echo "No unmanaged partial Container Apps found."
+            exit 0
           fi
+
+          while IFS= read -r app_name; do
+            if [ -n "$app_name" ]; then
+              echo "Deleting unmanaged partial Container App: $app_name"
+              az containerapp delete \
+                --name "$app_name" \
+                --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+                --yes
+            fi
+          done <<< "$existing_apps"
 
       - name: Deploy full Azure stack
         working-directory: ${{ env.AZURE_TERRAFORM_DIR }}
