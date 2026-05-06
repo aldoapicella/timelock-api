@@ -9,9 +9,9 @@ The repository is standardized on Terraform and PostgreSQL. It includes AWS and 
 | Layer | AWS | Azure |
 | --- | --- | --- |
 | Container registry | Amazon ECR | Azure Container Registry |
-| Container runtime | AWS App Runner | Azure App Service for Containers |
+| Container runtime | AWS App Runner | Azure Container Apps |
 | Database | Amazon RDS for PostgreSQL | Azure Database for PostgreSQL Flexible Server |
-| Secret storage | AWS Secrets Manager | App Service app settings |
+| Secret storage | AWS Secrets Manager | Container App environment variables |
 | Infrastructure as Code | Terraform AWS provider | Terraform AzureRM provider |
 | API documentation | Swagger/OpenAPI | Swagger/OpenAPI |
 
@@ -40,7 +40,7 @@ flowchart TB
 
     subgraph azure["Azure"]
         acr["Azure Container Registry"]
-        appservice["App Service for Containers"]
+        appservice["Azure Container Apps"]
         pgflex["PostgreSQL Flexible Server"]
         acr --> appservice
         appservice --> pgflex
@@ -192,7 +192,7 @@ Required GitHub repository variables:
 | `AZURE_TENANT_ID` | Azure tenant ID |
 | `AZURE_SUBSCRIPTION_ID` | Azure subscription ID |
 | `AZURE_RESOURCE_GROUP` | Target resource group |
-| `AZURE_LOCATION` | Azure region, for example `eastus` |
+| `AZURE_LOCATION` | Azure region, for example `centralus` |
 | `AZURE_TF_STATE_RESOURCE_GROUP` | Resource group for Terraform state storage |
 | `AZURE_TF_STATE_STORAGE_ACCOUNT` | Storage account for Terraform state |
 | `AZURE_TF_STATE_CONTAINER` | Blob container for Terraform state |

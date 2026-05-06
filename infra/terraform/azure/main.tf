@@ -6,7 +6,6 @@ locals {
   name         = "${var.project_name}-${var.environment}-${random_id.suffix.hex}"
   compact_name = lower(replace(local.name, "-", ""))
   app_name     = "${local.name}-api"
-  app_url      = "https://${local.app_name}.azurewebsites.net"
   database_url = "postgresql+psycopg://${urlencode(var.postgres_admin_user)}:${urlencode(var.postgres_admin_password)}@${azurerm_postgresql_flexible_server.postgres.fqdn}:5432/${azurerm_postgresql_flexible_server_database.app.name}?sslmode=require"
 
   tags = {
@@ -58,46 +57,81 @@ resource "azurerm_postgresql_flexible_server_firewall_rule" "allow_azure_service
   end_ip_address   = "0.0.0.0"
 }
 
-resource "azurerm_service_plan" "api" {
-  name                = "${local.name}-plan"
+resource "azurerm_log_analytics_workspace" "api" {
+  name                = "${local.name}-logs"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
-  os_type             = "Linux"
-  sku_name            = "B1"
+  sku                 = "PerGB2018"
+  retention_in_days   = 30
   tags                = local.tags
 }
 
-resource "azurerm_linux_web_app" "api" {
-  name                = local.app_name
+resource "azurerm_container_app_environment" "api" {
+  name                       = "${local.name}-env"
+  resource_group_name        = azurerm_resource_group.main.name
+  location                   = azurerm_resource_group.main.location
+  log_analytics_workspace_id = azurerm_log_analytics_workspace.api.id
+  tags                       = local.tags
+}
+
+resource "azurerm_user_assigned_identity" "api" {
+  name                = "${local.name}-identity"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
-  service_plan_id     = azurerm_service_plan.api.id
-  https_only          = true
   tags                = local.tags
-
-  identity {
-    type = "SystemAssigned"
-  }
-
-  site_config {
-    always_on                               = true
-    container_registry_use_managed_identity = true
-
-    application_stack {
-      docker_image_name   = "${var.image_name}:${var.image_tag}"
-      docker_registry_url = "https://${azurerm_container_registry.acr.login_server}"
-    }
-  }
-
-  app_settings = {
-    DATABASE_URL    = local.database_url
-    PUBLIC_BASE_URL = local.app_url
-    WEBSITES_PORT   = "8000"
-  }
 }
 
 resource "azurerm_role_assignment" "acr_pull" {
   scope                = azurerm_container_registry.acr.id
   role_definition_name = "AcrPull"
-  principal_id         = azurerm_linux_web_app.api.identity[0].principal_id
+  principal_id         = azurerm_user_assigned_identity.api.principal_id
+}
+
+resource "azurerm_container_app" "api" {
+  name                         = local.app_name
+  resource_group_name          = azurerm_resource_group.main.name
+  container_app_environment_id = azurerm_container_app_environment.api.id
+  revision_mode                = "Single"
+  tags                         = local.tags
+
+  identity {
+    type         = "UserAssigned"
+    identity_ids = [azurerm_user_assigned_identity.api.id]
+  }
+
+  registry {
+    server   = azurerm_container_registry.acr.login_server
+    identity = azurerm_user_assigned_identity.api.id
+  }
+
+  ingress {
+    external_enabled = true
+    target_port      = 8000
+
+    traffic_weight {
+      latest_revision = true
+      percentage      = 100
+    }
+  }
+
+  template {
+    min_replicas = 0
+    max_replicas = 2
+
+    container {
+      name   = "api"
+      image  = "${azurerm_container_registry.acr.login_server}/${var.image_name}:${var.image_tag}"
+      cpu    = 0.25
+      memory = "0.5Gi"
+
+      env {
+        name  = "DATABASE_URL"
+        value = local.database_url
+      }
+    }
+  }
+
+  depends_on = [
+    azurerm_role_assignment.acr_pull
+  ]
 }

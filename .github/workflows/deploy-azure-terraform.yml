@@ -127,10 +127,12 @@ jobs:
           set -euo pipefail
 
           for namespace in \
+            Microsoft.App \
             Microsoft.Authorization \
             Microsoft.ContainerRegistry \
             Microsoft.DBforPostgreSQL \
             Microsoft.ManagedIdentity \
+            Microsoft.OperationalInsights \
             Microsoft.Storage \
             Microsoft.Web; do
             az provider register --namespace "$namespace" --wait
@@ -203,13 +205,6 @@ jobs:
           TF_VAR_image_tag: ${{ env.DOCKER_IMAGE_TAG }}
         run: terraform apply -auto-approve
 
-      - name: Restart App Service
-        working-directory: ${{ env.AZURE_TERRAFORM_DIR }}
-        run: |
-          az webapp restart \
-            --name "$(terraform output -raw app_name)" \
-            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}"
-
       - name: Verify deployed health endpoint
         working-directory: ${{ env.AZURE_TERRAFORM_DIR }}
         shell: bash
@@ -231,3 +226,18 @@ jobs:
 
           echo "The app did not become healthy in time."
           exit 1
+
+      - name: Write deployment summary
+        working-directory: ${{ env.AZURE_TERRAFORM_DIR }}
+        run: |
+          app_url=$(terraform output -raw app_url)
+          acr_login_server=$(terraform output -raw acr_login_server)
+
+          {
+            echo "## TimeLock API Azure deployment"
+            echo
+            echo "- App URL: $app_url"
+            echo "- Swagger: $app_url/docs"
+            echo "- ACR: $acr_login_server"
+            echo "- Image tag: $DOCKER_IMAGE_TAG"
+          } >> "$GITHUB_STEP_SUMMARY"

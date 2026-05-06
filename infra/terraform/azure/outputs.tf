@@ -9,13 +9,13 @@ output "acr_login_server" {
 }
 
 output "app_name" {
-  description = "Azure App Service name."
-  value       = azurerm_linux_web_app.api.name
+  description = "Azure Container App name."
+  value       = azurerm_container_app.api.name
 }
 
 output "app_url" {
   description = "Public TimeLock API URL."
-  value       = local.app_url
+  value       = "https://${azurerm_container_app.api.latest_revision_fqdn}"
 }
 
 output "postgres_server_name" {
