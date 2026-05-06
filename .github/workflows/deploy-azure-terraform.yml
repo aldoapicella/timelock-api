@@ -198,6 +198,34 @@ jobs:
           docker push "$acr_login_server/timelock-api:${{ env.DOCKER_IMAGE_TAG }}"
           docker push "$acr_login_server/timelock-api:latest"
 
+      - name: Import existing Container App if needed
+        working-directory: ${{ env.AZURE_TERRAFORM_DIR }}
+        env:
+          TF_VAR_location: ${{ vars.AZURE_LOCATION }}
+          TF_VAR_resource_group_name: ${{ vars.AZURE_RESOURCE_GROUP }}
+          TF_VAR_postgres_admin_password: ${{ secrets.TF_VAR_POSTGRES_ADMIN_PASSWORD }}
+          TF_VAR_image_tag: ${{ env.DOCKER_IMAGE_TAG }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if terraform state show azurerm_container_app.api >/dev/null 2>&1; then
+            echo "Container App is already managed by Terraform."
+            exit 0
+          fi
+
+          app_name=$(terraform console <<< 'local.app_name' | tail -n 1 | tr -d '"')
+
+          if az containerapp show \
+            --name "$app_name" \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" >/dev/null 2>&1; then
+            terraform import \
+              azurerm_container_app.api \
+              "/subscriptions/${{ vars.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ vars.AZURE_RESOURCE_GROUP }}/providers/Microsoft.App/containerApps/$app_name"
+          else
+            echo "No existing Container App to import."
+          fi
+
       - name: Deploy full Azure stack
         working-directory: ${{ env.AZURE_TERRAFORM_DIR }}
         env:
