@@ -89,9 +89,11 @@ jobs:
         run: |
           set -euo pipefail
 
-          az group create \
-            --name "${{ vars.AZURE_TF_STATE_RESOURCE_GROUP }}" \
-            --location "${{ vars.AZURE_LOCATION }}"
+          if [ "$(az group exists --name "${{ vars.AZURE_TF_STATE_RESOURCE_GROUP }}")" != "true" ]; then
+            az group create \
+              --name "${{ vars.AZURE_TF_STATE_RESOURCE_GROUP }}" \
+              --location "${{ vars.AZURE_LOCATION }}"
+          fi
 
           if ! az storage account show \
             --name "${{ vars.AZURE_TF_STATE_STORAGE_ACCOUNT }}" \
