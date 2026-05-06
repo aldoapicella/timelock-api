@@ -26,7 +26,7 @@ resource "azurerm_container_registry" "acr" {
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
   sku                 = "Basic"
-  admin_enabled       = false
+  admin_enabled       = true
   tags                = local.tags
 }
 
@@ -74,19 +74,6 @@ resource "azurerm_container_app_environment" "api" {
   tags                       = local.tags
 }
 
-resource "azurerm_user_assigned_identity" "api" {
-  name                = "${local.name}-identity"
-  resource_group_name = azurerm_resource_group.main.name
-  location            = azurerm_resource_group.main.location
-  tags                = local.tags
-}
-
-resource "azurerm_role_assignment" "acr_pull" {
-  scope                = azurerm_container_registry.acr.id
-  role_definition_name = "AcrPull"
-  principal_id         = azurerm_user_assigned_identity.api.principal_id
-}
-
 resource "azurerm_container_app" "api" {
   name                         = local.app_name
   resource_group_name          = azurerm_resource_group.main.name
@@ -94,14 +81,15 @@ resource "azurerm_container_app" "api" {
   revision_mode                = "Single"
   tags                         = local.tags
 
-  identity {
-    type         = "UserAssigned"
-    identity_ids = [azurerm_user_assigned_identity.api.id]
+  secret {
+    name  = "acr-password"
+    value = azurerm_container_registry.acr.admin_password
   }
 
   registry {
-    server   = azurerm_container_registry.acr.login_server
-    identity = azurerm_user_assigned_identity.api.id
+    server               = azurerm_container_registry.acr.login_server
+    username             = azurerm_container_registry.acr.admin_username
+    password_secret_name = "acr-password"
   }
 
   ingress {
@@ -131,7 +119,5 @@ resource "azurerm_container_app" "api" {
     }
   }
 
-  depends_on = [
-    azurerm_role_assignment.acr_pull
-  ]
+  depends_on = [azurerm_container_registry.acr]
 }
