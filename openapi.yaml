@@ -4,6 +4,13 @@ info:
   description: Create digital time capsules that stay locked until a specific UTC
     date. Each capsule receives a public open link and a QR code.
   version: 1.0.0
+servers:
+- url: https://timelock-prod-e97238-api.proudforest-ff150a20.centralus.azurecontainerapps.io
+  description: Azure production
+- url: https://c3pdp2eik3.us-east-1.awsapprunner.com
+  description: AWS production
+- url: http://localhost:8000
+  description: Local development
 paths:
   /health:
     get:
@@ -377,4 +384,3 @@ components:
       - msg
       - type
       title: ValidationError
-
